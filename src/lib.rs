@@ -1,185 +1,303 @@
 /*!
-Streaming INI parser
+Ini streaming parser
 ====================
 
-Compatible with `no_std`.
+Simple, straight forward, super fast, `no_std` compatible INI parser.
 
 Examples
 --------
 
 ```
-use core_ini::{Parser, Item};
+use ini_core as ini;
 
-let document = "
+let document = "\
 [SECTION]
 ;this is a comment
 Key=Value";
 
 let elements = [
-	Item::Section("SECTION"),
-	Item::Comment("this is a comment"),
-	Item::Property("Key", "Value"),
+	ini::Item::Section("SECTION"),
+	ini::Item::Comment("this is a comment"),
+	ini::Item::Property("Key", "Value"),
 ];
 
-for (index, elem) in Parser::new(document).enumerate() {
-	assert_eq!(elements[index], elem);
+for (line, item) in ini::Parser::new(document).enumerate() {
+	assert_eq!(item, elements[line]);
 }
 ```
 
- */
+The parser is very much line-based, it will continue no matter what and return nonsense as an item:
 
-use core::str;
+```
+use ini_core as ini;
 
-/// Ini component.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+let document = "\
+[SECTION
+nonsense";
+
+let elements = [
+	ini::Item::Error("[SECTION"),
+	ini::Item::Action("nonsense"),
+];
+
+for (line, item) in ini::Parser::new(document).enumerate() {
+	assert_eq!(item, elements[line]);
+}
+```
+
+Lines starting with `[` but contain either no closing `]` or a closing `]` not followed by a newline are returned as [`Item::Error`].
+Lines missing a `=` are returned as [`Item::Action`]. See below for more details.
+
+Format
+------
+
+INI is not a well specified format, this parser tries to make as little assumptions as possible but it does make decisions.
+
+* Newline is either `"\r\n"`, `"\n"` or `"\r"`. It can be mixed in a single document but this is not recommended.
+* Section header is `"[" section "]" newline`. `section` can be anything except contain newlines.
+* Property is `key "=" value newline`. `key` and `value` can be anything except contain newlines.
+* Comment is `";" comment newline` and Blank is just `newline`. The comment character can be customized.
+
+Note that padding whitespace is not trimmed by default:
+Section `[ SECTION ]`'s name is `<space>SECTION<space>`.
+Property `KEY = VALUE` has key `KEY<space>` and value `<space>VALUE`.
+Comment `; comment`'s comment is `<space>comment`.
+
+No further processing of the input is done, eg. if escape sequences are necessary they must be processed by the user.
+*/
+
+#![cfg_attr(not(test), no_std)]
+
+#[allow(unused_imports)]
+use core::{fmt, str};
+
+// All the routines here work only with and slice only at ascii characters
+// This means conversion between `&str` and `&[u8]` is a noop even when slicing
+#[inline]
+fn from_utf8(v: &[u8]) -> &str {
+	#[cfg(not(debug_assertions))]
+	return unsafe { str::from_utf8_unchecked(v) };
+	#[cfg(debug_assertions)]
+	return str::from_utf8(v).unwrap();
+}
+
+// LLVM is big dum dum, trust me I'm a human
+#[cfg(not(debug_assertions))]
+macro_rules! unsafe_assert {
+	($e:expr) => { unsafe { if !$e { ::core::hint::unreachable_unchecked(); } } };
+}
+#[cfg(debug_assertions)]
+macro_rules! unsafe_assert {
+	($e:expr) => {};
+}
+
+mod parse;
+
+/// Ini element.
+///
+/// IMPORTANT! Values are not checked or escaped when displaying the item.
+/// Ensure that the values do not contain newlines or invalid characters.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Item<'a> {
-	/// Ini section element.
+	/// Syntax error.
+	///
+	/// Section header element was malformed.
+	Error(&'a str),
+
+	/// Section header element.
 	///
 	/// Eg. `[SECTION]` results in `Item::Section("SECTION")`.
-	Section(&'a str),
-	/// Ini property element.
 	///
-	/// Eg. `KEY=VALUE` results in `Item::Property("KEY", "VALUE")`.
+	/// Section value must not contain `[` or `]`.
+	Section(&'a str),
+
+	/// Property element.
+	///
+	/// Eg. `KEY=VALUE` results in `Item::Property("KEY", Some("VALUE"))`.
+	///
+	/// Key value must not contain `=`.
 	Property(&'a str, &'a str),
-	/// Ini comment.
+
+	/// Property without value.
+	///
+	/// Eg. `ACTION` results in `Item::Property("ACTION")`.
+	///
+	/// Action value must not contain `=`.
+	Action(&'a str),
+
+	/// Comment.
 	///
 	/// Eg. `;comment` results in `Item::Comment("comment")`.
 	Comment(&'a str),
+
+	/// Blank line.
+	///
+	/// Allows faithful reproduction of the whole ini file including blank lines.
+	Blank,
 }
 
-/// Gets a value in the given section with key.
-pub fn get<'a>(config: &'a str, section: Option<&str>, key: &str) -> Option<&'a str> {
-	let mut current = section.is_none();
-	for item in Parser::new(config) {
-		match item {
-			Item::Section(name) => {
-				current = Some(name) == section;
-			},
-			Item::Property(k, v) => {
-				if current && k == key {
-					return Some(v);
-				}
-			},
-			_ => (),
+impl<'a> fmt::Display for Item<'a> {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			&Item::Error(error) => write!(f, "{}\n", error),
+			&Item::Section(section) => write!(f, "[{}]\n", section),
+			&Item::Property(key, value) => write!(f, "{}={}\n", key, value),
+			&Item::Action(action) => write!(f, "{}\n", action),
+			&Item::Comment(comment) => write!(f, ";{}\n", comment),
+			&Item::Blank => f.write_str("\n"),
 		}
 	}
-	None
-}
-pub fn set(config: &mut String, section: Option<&str>, key: &str, value: &str) {
-	unimplemented!()
 }
 
-/// Streaming Ini parser.
+/// Trims ascii whitespace from the start and end of the string slice.
+///
+/// See also [`Parser::auto_trim`] to automatically trim strings.
+pub fn trim(s: &str) -> &str {
+	s.trim_matches(|chr: char| chr.is_ascii_whitespace())
+}
+
+/// Ini streaming parser.
+///
+/// The whole document must be available before parsing starts.
+/// The parser then returns each element as it is being parsed.
+///
+/// See [`crate`] documentation for more information.
 #[derive(Clone, Debug)]
-pub struct Parser<'a>(&'a str);
+pub struct Parser<'a> {
+	line: u32,
+	comment_char: u8,
+	auto_trim: bool,
+	state: &'a [u8],
+}
 
 impl<'a> Parser<'a> {
-	pub fn new(s: &'a str) -> Parser<'a> {
-		Parser(s)
+	/// Constructs a new `Parser` instance.
+	#[inline]
+	pub const fn new(s: &'a str) -> Parser<'a> {
+		let state = s.as_bytes();
+		Parser { line: 0, comment_char: b';', auto_trim: false, state }
+	}
+
+	/// Sets the comment character, eg. `b'#'`.
+	///
+	/// The default is `b';'`.
+	#[inline]
+	pub const fn comment_char(self, chr: u8) -> Parser<'a> {
+		// Mask off high bit to ensure we don't corrupt utf8 strings
+		let comment_char = chr & 0x7f;
+		Parser { comment_char, ..self }
+	}
+
+	/// Sets auto trimming of all returned strings.
+	///
+	/// The default is `false`.
+	#[inline]
+	pub const fn auto_trim(self, auto_trim: bool) -> Parser<'a> {
+		Parser { auto_trim, ..self }
+	}
+
+	/// Returns the line number the parser is currently at.
+	#[inline]
+	pub const fn line(&self) -> u32 {
+		self.line
+	}
+
+	/// Returns the remainder of the input string.
+	#[inline]
+	pub fn remainder(&self) -> &'a str {
+		from_utf8(self.state)
 	}
 }
 
 impl<'a> Iterator for Parser<'a> {
 	type Item = Item<'a>;
+
+	// #[cfg_attr(test, mutagen::mutate)]
+	#[inline(never)]
 	fn next(&mut self) -> Option<Item<'a>> {
-		// Strip off empty lines
-		loop {
-			if self.0.len() == 0 {
-				return None;
-			}
-			if self.0.as_bytes()[0] != b'\n' {
-				break;
-			}
-			self.0 = &self.0[1..];
-		}
-		let s = self.0.as_bytes();
-		// Line is a comment
-		if s[0] == b';' {
-			let mut i = 0;
-			let comment_end;
-			loop {
-				i += 1;
-				if i >= s.len() {
-					comment_end = i;
-					break;
+		let mut s = self.state;
+
+		match s.first().cloned() {
+			// Terminal case
+			None => None,
+			// Blank
+			Some(b'\r' | b'\n') => {
+				self.skip_ln(s);
+				Some(Item::Blank)
+			},
+			// Comment
+			Some(chr) if chr == self.comment_char => {
+				s = &s[1..];
+				let i = parse::find_nl(s);
+				unsafe_assert!(i <= s.len());
+				let comment = from_utf8(&s[..i]);
+				let comment = if self.auto_trim { trim(comment) } else { comment };
+				self.skip_ln(&s[i..]);
+				Some(Item::Comment(comment))
+			},
+			// Section
+			Some(b'[') => {
+				let i = parse::find_nl(s);
+				unsafe_assert!(i >= 1 && i <= s.len());
+				if s[i - 1] != b']' {
+					let error = from_utf8(&s[..i]);
+					self.skip_ln(&s[i..]);
+					return Some(Item::Error(error));
 				}
-				if s[i] == b'\n' {
-					comment_end = i;
-					i += 1;
-					break;
-				}
-			}
-			let comment = &self.0[1..comment_end];
-			self.0 = &self.0[i..];
-			Some(Item::Comment(comment))
-		}
-		// Line is a section
-		else if s[0] == b'[' {
-			let mut i = 0;
-			let mut end = 0;
-			loop {
-				i += 1;
-				if i >= s.len() {
-					if end == 0 {
-						end = i;
+				unsafe_assert!(1 <= i - 1);
+				let section = from_utf8(&s[1..i - 1]);
+				let section = if self.auto_trim { trim(section) } else { section };
+				self.skip_ln(&s[i..]);
+				Some(Item::Section(section))
+			},
+			// Property
+			_ => {
+				let key = {
+					let i = parse::find_nl_chr(s, b'=');
+					unsafe_assert!(i <= s.len());
+					if s.get(i) != Some(&b'=') {
+						let action = from_utf8(&s[..i]);
+						let action = if self.auto_trim { trim(action) } else { action };
+						self.skip_ln(&s[i..]);
+						return Some(Item::Action(action));
 					}
-					break;
-				}
-				if s[i] == b']' {
-					end = i;
-				}
-				if s[i] == b'\n' {
-					if end == 0 {
-						end = i;
-					}
-					i += 1;
-					break;
-				}
-			}
-			let name = &self.0[1..end];
-			self.0 = &self.0[i..];
-			Some(Item::Section(name))
-		}
-		// Line is a property
-		else {
-			let mut i = 0;
-			let mut key_end = 0;
-			let mut value_start = 0;
-			let mut value_end = 0;
-			loop {
-				i += 1;
-				if i >= s.len() {
-					if value_start > value_end {
-						value_end = i;
-					}
-					break;
-				}
-				if s[i] == b'=' {
-					if value_start == 0 {
-						key_end = i;
-						value_start = i + 1;
-					}
-				}
-				else if s[i] == b'\n' {
-					value_end = i;
-					i += 1;
-					break;
-				}
-			}
-			let key = &self.0[0..key_end];
-			let value = &self.0[value_start..value_end];
-			self.0 = &self.0[i..];
-			Some(Item::Property(key, value))
+					unsafe_assert!(i + 1 <= s.len());
+					let key = from_utf8(&s[..i]);
+					let key = if self.auto_trim { trim(key) } else { key };
+					s = &s[i + 1..];
+					key
+				};
+				let value = {
+					let i = parse::find_nl(s);
+					unsafe_assert!(i <= s.len());
+					let value = from_utf8(&s[..i]);
+					let value = if self.auto_trim { trim(value) } else { value };
+					self.skip_ln(&s[i..]);
+					value
+				};
+				Some(Item::Property(key, value))
+			},
 		}
 	}
 }
 
-#[test]
-fn test_eos() {
-	assert_eq!(Parser::new("[SECTION]").collect::<Vec<_>>(), vec![Item::Section("SECTION")]);
-	assert_eq!(Parser::new("[SECTION]\n").collect::<Vec<_>>(), vec![Item::Section("SECTION")]);
-	assert_eq!(Parser::new(";comment").collect::<Vec<_>>(), vec![Item::Comment("comment")]);
-	assert_eq!(Parser::new(";comment\n").collect::<Vec<_>>(), vec![Item::Comment("comment")]);
-	assert_eq!(Parser::new("Key=Value").collect::<Vec<_>>(), vec![Item::Property("Key", "Value")]);
-	assert_eq!(Parser::new("Key=Value\n").collect::<Vec<_>>(), vec![Item::Property("Key", "Value")]);
+impl<'a> Parser<'a> {
+	#[inline]
+	fn skip_ln(&mut self, mut s: &'a [u8]) {
+		if s.len() > 0 {
+			if s[0] == b'\r' {
+				s = &s[1..];
+			}
+			if s.len() > 0 {
+				if s[0] == b'\n' {
+					s = &s[1..];
+				}
+			}
+			self.line += 1;
+		}
+		self.state = s;
+	}
 }
+
+#[cfg(test)]
+mod tests;
