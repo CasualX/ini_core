@@ -1,0 +1,11 @@
+[package]
+name = "ini_benchmarks"
+version = "0.0.0"
+edition = "2021"
+
+[dev-dependencies]
+ini_core = { version = "0.2", path = ".." }
+configparser = "3.0"
+simpleini = "0.1.2"
+tini = "1.3"
+light-ini = "0.1.3"
