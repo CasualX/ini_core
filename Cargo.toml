@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "import"]
+
 [package]
 name = "ini_core"
 version = "0.2.0"
