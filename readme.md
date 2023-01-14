@@ -22,15 +22,20 @@ let document = "\
 Key=Value";
 
 let elements = [
+	ini::Item::SectionEnd,
 	ini::Item::Section("SECTION"),
 	ini::Item::Comment("this is a comment"),
-	ini::Item::Property("Key", "Value"),
+	ini::Item::Property("Key", Some("Value")),
+	ini::Item::SectionEnd,
 ];
 
-for (line, item) in ini::Parser::new(document).enumerate() {
-	assert_eq!(item, elements[line]);
+for (index, item) in ini::Parser::new(document).enumerate() {
+	assert_eq!(item, elements[index]);
 }
 ```
+
+The `SectionEnd` pseudo element is returned before a new section and at the end of the document.
+This helps processing sections after their properties finished parsing.
 
 The parser is very much line-based, it will continue no matter what and return nonsense as an item:
 
@@ -42,17 +47,19 @@ let document = "\
 nonsense";
 
 let elements = [
+	ini::Item::SectionEnd,
 	ini::Item::Error("[SECTION"),
-	ini::Item::Action("nonsense"),
+	ini::Item::Property("nonsense", None),
+	ini::Item::SectionEnd,
 ];
 
-for (line, item) in ini::Parser::new(document).enumerate() {
-	assert_eq!(item, elements[line]);
+for (index, item) in ini::Parser::new(document).enumerate() {
+	assert_eq!(item, elements[index]);
 }
 ```
 
 Lines starting with `[` but contain either no closing `]` or a closing `]` not followed by a newline are returned as `Item::Error`.
-Lines missing a `=` are returned as `Item::Action`.
+Lines missing a `=` are returned as `Item::Property` with `None` value.
 
 Format
 ------

@@ -18,6 +18,16 @@ In reality I only see minor improvements with SWAR (about 33% faster).
 
 */
 
+// LLVM is big dum dum, trust me I'm a human
+#[cfg(not(debug_assertions))]
+macro_rules! unsafe_assert {
+	($e:expr) => { unsafe { if !$e { ::core::hint::unreachable_unchecked(); } } };
+}
+#[cfg(debug_assertions)]
+macro_rules! unsafe_assert {
+	($e:expr) => {};
+}
+
 mod generic;
 
 cfg_if::cfg_if! {
