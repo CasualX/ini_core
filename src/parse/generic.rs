@@ -9,7 +9,7 @@ pub fn find_nl(s: &[u8]) -> usize {
 		i += 1;
 	}
 	unsafe_assert!(i <= s.len());
-	return i;
+	i
 }
 
 #[inline]
@@ -22,5 +22,5 @@ pub fn find_nl_chr(s: &[u8], chr: u8) -> usize {
 		i += 1;
 	}
 	unsafe_assert!(i <= s.len());
-	return i;
+	i
 }

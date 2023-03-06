@@ -173,13 +173,13 @@ pub enum Item<'a> {
 impl<'a> fmt::Display for Item<'a> {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
-			&Item::Error(error) => write!(f, "{}\n", error),
-			&Item::Section(section) => write!(f, "[{}]\n", section),
-			&Item::SectionEnd => Ok(()),
-			&Item::Property(key, Some(value)) => write!(f, "{}={}\n", key, value),
-			&Item::Property(key, None) => write!(f, "{}\n", key),
-			&Item::Comment(comment) => write!(f, ";{}\n", comment),
-			&Item::Blank => f.write_str("\n"),
+			Item::Error(error) => writeln!(f, "{}", error),
+			Item::Section(section) => writeln!(f, "[{}]", section),
+			Item::SectionEnd => Ok(()),
+			Item::Property(key, Some(value)) => writeln!(f, "{}={}", key, value),
+			Item::Property(key, None) => writeln!(f, "{}", key),
+			Item::Comment(comment) => writeln!(f, ";{}", comment),
+			Item::Blank => f.write_str("\n"),
 		}
 	}
 }
@@ -335,15 +335,13 @@ impl<'a> core::iter::FusedIterator for Parser<'a> {}
 impl<'a> Parser<'a> {
 	#[inline]
 	fn skip_ln(&mut self, mut s: &'a [u8]) {
-		if s.len() > 0 {
+		if !s.is_empty() {
 			if s[0] == b'\r' {
 				s = &s[1..];
 			}
-			if s.len() > 0 {
-				if s[0] == b'\n' {
-					s = &s[1..];
-				}
-			}
+			if !s.is_empty() && s[0] == b'\n' {
+   					s = &s[1..];
+   				}
 			self.line += 1;
 		}
 		self.state = s;

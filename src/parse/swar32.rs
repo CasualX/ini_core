@@ -18,7 +18,7 @@ pub fn find_nl(s: &[u8]) -> usize {
 	unsafe_assert!(offset <= s.len());
 	offset += super::generic::find_nl(&s[offset..]);
 	unsafe_assert!(offset <= s.len());
-	return offset;
+	offset
 }
 
 #[inline]
@@ -41,7 +41,7 @@ pub fn find_nl_chr(s: &[u8], chr: u8) -> usize {
 	unsafe_assert!(offset <= s.len());
 	offset += super::generic::find_nl_chr(&s[offset..], chr);
 	unsafe_assert!(offset <= s.len());
-	return offset;
+	offset
 }
 
 #[inline]
