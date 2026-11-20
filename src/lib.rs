@@ -76,7 +76,7 @@ Note that padding whitespace is not trimmed by default:
 No further processing of the input is done, eg. if escape sequences are necessary they must be processed by the caller.
 */
 
-#![cfg_attr(all(not(test), not(feature = "std")), no_std)]
+#![cfg_attr(not(test), no_std)]
 
 #[allow(unused_imports)]
 use core::{fmt, str};
