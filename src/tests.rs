@@ -81,3 +81,14 @@ fn test_terminates() {
 	for _ in Parser::new("[") {}
 	for _ in Parser::new("[] ") {}
 }
+
+#[test]
+fn test_comment() {
+	check("\r\n[SECTION];comment", &[Item::Blank, Item::SectionEnd, Item::Error("[SECTION];comment"), Item::SectionEnd]);
+	check("\r\n[SECTION;comment]", &[Item::Blank, Item::SectionEnd, Item::Section("SECTION;comment"), Item::SectionEnd]);
+	check("\r\n;comment[SECTION]", &[Item::Blank, Item::Comment("comment[SECTION]"), Item::SectionEnd]);
+	check("\r\nk=v;comment", &[Item::Blank, Item::Property("k", Some("v;comment")), Item::SectionEnd]);
+	check("\r\nk=;v;comment", &[Item::Blank, Item::Property("k", Some(";v;comment")), Item::SectionEnd]);
+	check("\r\nk;=;v;comment", &[Item::Blank, Item::Property("k;", Some(";v;comment")), Item::SectionEnd]);
+	check("\r\n;k;=;v;comment", &[Item::Blank, Item::Comment("k;=;v;comment"), Item::SectionEnd]);
+}

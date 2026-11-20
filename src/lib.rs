@@ -64,6 +64,8 @@ INI is not a well specified format, this parser tries to make as little assumpti
 * Section header is `"[" section "]" newline`. `section` can be anything except contain newlines.
 * Property is `key "=" value newline`. `key` and `value` can be anything except contain newlines.
 * Comment is `";" comment newline` and Blank is just `newline`. The comment character can be customized.
+* No inline comments. `"key=value;comment"` is `key`, `=`, `value;comment` and
+  `"\[section\];comment"` is an error.
 
 Note that padding whitespace is not trimmed by default:
 
@@ -74,7 +76,7 @@ Note that padding whitespace is not trimmed by default:
 No further processing of the input is done, eg. if escape sequences are necessary they must be processed by the caller.
 */
 
-#![cfg_attr(not(test), no_std)]
+#![cfg_attr(all(not(test), not(feature = "std")), no_std)]
 
 #[allow(unused_imports)]
 use core::{fmt, str};
