@@ -12,5 +12,9 @@ readme = "readme.md"
 keywords = ["ini", "core", "config", "configuration", "parser"]
 categories = ["config", "parser-implementations"]
 
+[features]
+default = ["std"]
+std = []
+
 [dependencies]
 cfg-if = "1.0"
