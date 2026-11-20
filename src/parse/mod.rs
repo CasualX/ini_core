@@ -35,6 +35,26 @@ cfg_if::cfg_if! {
 	if #[cfg(not(target_endian = "little"))] {
 		pub use self::generic::*;
 	}
+    else if #[cfg(all(feature="std", any(target_arch = "x86", target_arch = "x86_64")))] {
+        mod avx2;
+        mod sse2;
+
+        pub fn find_nl(s: &[u8]) -> usize {
+            if is_x86_feature_detected!("avx2") {
+                avx2::find_nl(s)
+            } else {
+                sse2::find_nl(s)
+            }
+        }
+
+        pub fn find_nl_chr(s: &[u8], chr: u8) -> usize {
+            if is_x86_feature_detected!("avx2") {
+                avx2::find_nl_chr(s, chr)
+            } else {
+                sse2::find_nl_chr(s, chr)
+            }
+        }
+    }
 	else if #[cfg(all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "avx2"))] {
 		mod avx2;
 		pub use self::avx2::*;
